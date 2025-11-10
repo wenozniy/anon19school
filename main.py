@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime
 import time
 
-ADMINS = {1870435438, 8209990188}  # Список id админов
+ADMINS = {1870435438, 8209990188}
 
 blocked_users = set()
 user_last_message_time = {}
@@ -105,16 +105,13 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=info_text,
             reply_markup=reply_markup
         )
-        # Фото
         if update.message.photo:
-            photo = update.message.photo[-1]
             await context.bot.send_photo(
                 chat_id=admin_id,
-                photo=photo.file_id,
+                photo=update.message.photo[-1].file_id,
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
-        # Видео
         elif update.message.video:
             await context.bot.send_video(
                 chat_id=admin_id,
@@ -122,7 +119,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
-        # Голосовые
         elif update.message.voice:
             await context.bot.send_voice(
                 chat_id=admin_id,
@@ -130,7 +126,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
-        # Аудио
         elif update.message.audio:
             await context.bot.send_audio(
                 chat_id=admin_id,
@@ -138,7 +133,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
-        # Документы
         elif update.message.document:
             await context.bot.send_document(
                 chat_id=admin_id,
@@ -146,14 +140,12 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
-        # Кружки (VideoNote)
         elif update.message.video_note:
             await context.bot.send_video_note(
                 chat_id=admin_id,
                 video_note=update.message.video_note.file_id,
                 reply_to_message_id=info_msg.message_id
             )
-        # Стикеры
         elif update.message.sticker:
             await context.bot.send_sticker(
                 chat_id=admin_id,
@@ -304,9 +296,10 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("broadcastall", broadcastall_command))
 
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
+
     application.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.VOICE | filters.AUDIO |
-        filters.Document.ALL | filters.Sticker.ALL | filters.VideoNote.ALL,
+        filters.Document.ALL | filters.Sticker.ALL | filters.VIDEO_NOTE,
         handle_media
     ))
 
