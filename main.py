@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime
 import time
 
-ADMINS = {1870435438, 8209990188}  # <-- ВСЕ АДМИНЫ!
+ADMINS = {1870435438, 8209990188}  # Список id админов
 
 blocked_users = set()
 user_last_message_time = {}
@@ -63,7 +63,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_text = f"ID: {user_id}\nUsername: @{username}"
     keyboard = [[InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Отправляем обоим администраторам
     for admin_id in ADMINS:
         info_msg = await context.bot.send_message(
             chat_id=admin_id,
@@ -106,6 +105,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=info_text,
             reply_markup=reply_markup
         )
+        # Фото
         if update.message.photo:
             photo = update.message.photo[-1]
             await context.bot.send_photo(
@@ -114,6 +114,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
+        # Видео
         elif update.message.video:
             await context.bot.send_video(
                 chat_id=admin_id,
@@ -121,6 +122,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
+        # Голосовые
         elif update.message.voice:
             await context.bot.send_voice(
                 chat_id=admin_id,
@@ -128,6 +130,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
+        # Аудио
         elif update.message.audio:
             await context.bot.send_audio(
                 chat_id=admin_id,
@@ -135,11 +138,26 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=update.message.caption,
                 reply_to_message_id=info_msg.message_id
             )
+        # Документы
         elif update.message.document:
             await context.bot.send_document(
                 chat_id=admin_id,
                 document=update.message.document.file_id,
                 caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        # Кружки (VideoNote)
+        elif update.message.video_note:
+            await context.bot.send_video_note(
+                chat_id=admin_id,
+                video_note=update.message.video_note.file_id,
+                reply_to_message_id=info_msg.message_id
+            )
+        # Стикеры
+        elif update.message.sticker:
+            await context.bot.send_sticker(
+                chat_id=admin_id,
+                sticker=update.message.sticker.file_id,
                 reply_to_message_id=info_msg.message_id
             )
         else:
@@ -204,8 +222,11 @@ async def block_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     user_id = int(query.data.split('_')[1])
-    blocked_users.add(user_id)
-    await query.edit_message_text(text=f"Пользователь {user_id} заблокирован.")
+    if user_id not in ADMINS:
+        blocked_users.add(user_id)
+        await query.edit_message_text(text=f"Пользователь {user_id} заблокирован.")
+    else:
+        await query.edit_message_text(text="Админа нельзя заблокировать!")
 
 async def unblock_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -226,8 +247,11 @@ async def block_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Используйте: /block <user_id>")
         return
     user_id = int(args[0])
-    blocked_users.add(user_id)
-    await update.message.reply_text(f"Пользователь {user_id} заблокирован.")
+    if user_id not in ADMINS:
+        blocked_users.add(user_id)
+        await update.message.reply_text(f"Пользователь {user_id} заблокирован.")
+    else:
+        await update.message.reply_text("Админа нельзя заблокировать!")
 
 async def blocked_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id not in ADMINS:
@@ -281,7 +305,9 @@ if __name__ == '__main__':
 
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL, handle_media
+        filters.PHOTO | filters.VIDEO | filters.VOICE | filters.AUDIO |
+        filters.Document.ALL | filters.Sticker.ALL | filters.VideoNote.ALL,
+        handle_media
     ))
 
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
