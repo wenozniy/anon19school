@@ -270,7 +270,7 @@ async def broadcastall_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text("Рассылка отправлена всем незаблокированным.")
 
 if __name__ == '__main__':
-    application = ApplicationBuilder().token("ВАШ_ТОКЕН_ЗДЕСЬ").build()
+    application = ApplicationBuilder().token("8419583158:AAHSlwvz0Incd6QmLJLCbdvzs9219wW-XnQ").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin))
