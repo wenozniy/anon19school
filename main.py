@@ -7,7 +7,8 @@ from collections import deque
 from datetime import datetime
 import time
 
-ADMIN_ID = 1870435438  # <-- Укажите свой Telegram ID!
+ADMINS = {1870435438, 8209990188}  # <-- ВСЕ АДМИНЫ!
+
 blocked_users = set()
 user_last_message_time = {}
 usernames_map = {}
@@ -62,16 +63,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_text = f"ID: {user_id}\nUsername: @{username}"
     keyboard = [[InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    info_msg = await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=info_text,
-        reply_markup=reply_markup
-    )
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=update.message.text,
-        reply_to_message_id=info_msg.message_id
-    )
+    # Отправляем обоим администраторам
+    for admin_id in ADMINS:
+        info_msg = await context.bot.send_message(
+            chat_id=admin_id,
+            text=info_text,
+            reply_markup=reply_markup
+        )
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text=update.message.text,
+            reply_to_message_id=info_msg.message_id
+        )
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -97,58 +100,58 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info_text = f"ID: {user_id}\nUsername: @{username}"
     keyboard = [[InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    info_msg = await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=info_text,
-        reply_markup=reply_markup
-    )
-    # Корректная пересылка всех типов медиа
-    if update.message.photo:
-        photo = update.message.photo[-1]
-        await context.bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=photo.file_id,
-            caption=update.message.caption,
-            reply_to_message_id=info_msg.message_id
+    for admin_id in ADMINS:
+        info_msg = await context.bot.send_message(
+            chat_id=admin_id,
+            text=info_text,
+            reply_markup=reply_markup
         )
-    elif update.message.video:
-        await context.bot.send_video(
-            chat_id=ADMIN_ID,
-            video=update.message.video.file_id,
-            caption=update.message.caption,
-            reply_to_message_id=info_msg.message_id
-        )
-    elif update.message.voice:
-        await context.bot.send_voice(
-            chat_id=ADMIN_ID,
-            voice=update.message.voice.file_id,
-            caption=update.message.caption,
-            reply_to_message_id=info_msg.message_id
-        )
-    elif update.message.audio:
-        await context.bot.send_audio(
-            chat_id=ADMIN_ID,
-            audio=update.message.audio.file_id,
-            caption=update.message.caption,
-            reply_to_message_id=info_msg.message_id
-        )
-    elif update.message.document:
-        await context.bot.send_document(
-            chat_id=ADMIN_ID,
-            document=update.message.document.file_id,
-            caption=update.message.caption,
-            reply_to_message_id=info_msg.message_id
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text="[Неизвестный тип медиа]",
-            reply_to_message_id=info_msg.message_id
-        )
+        if update.message.photo:
+            photo = update.message.photo[-1]
+            await context.bot.send_photo(
+                chat_id=admin_id,
+                photo=photo.file_id,
+                caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        elif update.message.video:
+            await context.bot.send_video(
+                chat_id=admin_id,
+                video=update.message.video.file_id,
+                caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        elif update.message.voice:
+            await context.bot.send_voice(
+                chat_id=admin_id,
+                voice=update.message.voice.file_id,
+                caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        elif update.message.audio:
+            await context.bot.send_audio(
+                chat_id=admin_id,
+                audio=update.message.audio.file_id,
+                caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        elif update.message.document:
+            await context.bot.send_document(
+                chat_id=admin_id,
+                document=update.message.document.file_id,
+                caption=update.message.caption,
+                reply_to_message_id=info_msg.message_id
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text="[Неизвестный тип медиа]",
+                reply_to_message_id=info_msg.message_id
+            )
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id != ADMIN_ID:
+    if user_id not in ADMINS:
         await update.message.reply_text("У вас нет доступа к этой команде.")
         return
     await update.message.reply_text(
@@ -158,7 +161,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.from_user.id != ADMIN_ID:
+    if query.from_user.id not in ADMINS:
         await query.answer(text="Нет доступа", show_alert=True)
         return
     if query.data == "menu_blocked":
@@ -215,7 +218,7 @@ async def unblock_user_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(text="Пользователь не найден в списке заблокированных.")
 
 async def block_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.message.from_user.id not in ADMINS:
         await update.message.reply_text("У вас нет доступа к этой команде.")
         return
     args = context.args
@@ -227,7 +230,7 @@ async def block_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"Пользователь {user_id} заблокирован.")
 
 async def blocked_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.message.from_user.id not in ADMINS:
         await update.message.reply_text("У вас нет доступа к этой команде.")
         return
     if not blocked_users:
@@ -241,7 +244,7 @@ async def blocked_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, reply_markup=reply_markup)
 
 async def recent_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.message.from_user.id not in ADMINS:
         await update.message.reply_text("Нет доступа.")
         return
     N = int(context.args[0]) if context.args and context.args[0].isdigit() else 5
@@ -254,7 +257,7 @@ async def recent_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('\n\n'.join(lines))
 
 async def broadcastall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.message.from_user.id not in ADMINS:
         await update.message.reply_text("Нет доступа.")
         return
     text = ' '.join(context.args)
@@ -267,7 +270,7 @@ async def broadcastall_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text("Рассылка отправлена всем незаблокированным.")
 
 if __name__ == '__main__':
-    application = ApplicationBuilder().token("8419583158:AAHSlwvz0Incd6QmLJLCbdvzs9219wW-XnQ").build()
+    application = ApplicationBuilder().token("ВАШ_ТОКЕН_ЗДЕСЬ").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin))
