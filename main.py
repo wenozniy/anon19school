@@ -15,6 +15,9 @@ usernames_map = {}
 message_history = deque(maxlen=100)
 CONFIRM_TEXT = "Ваше сообщение отправлено анонимно"
 
+# --- Новый блок для режима ответа ---
+admin_reply_mode = {}
+
 def check_user(user_id: int) -> bool:
     if user_id in blocked_users:
         return False
@@ -44,6 +47,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     username = user.username or "нет"
     usernames_map[user_id] = username
+    # Если это админ в режиме ответа
+    if user_id in ADMINS and admin_reply_mode.get(user_id):
+        to_user_id = admin_reply_mode.pop(user_id, None)
+        if to_user_id and to_user_id not in blocked_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=to_user_id,
+                    text=f"Вам пришёл анонимный ответ на ваше сообщение:\n{update.message.text}"
+                )
+                await update.message.reply_text("Ответ отправлен пользователю анонимно.")
+            except Exception:
+                await update.message.reply_text("Ошибка отправки ответа пользователю.")
+            return
+        await update.message.reply_text("Ошибка: пользователь заблокирован или не найден.")
+        return
+
     if user_id in blocked_users:
         await update.message.reply_text("Вы заблокированы и не можете отправлять сообщения.")
         return
@@ -61,7 +80,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
     info_text = f"ID: {user_id}\nUsername: @{username}"
-    keyboard = [[InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")]]
+    keyboard = [
+        [InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")],
+        [InlineKeyboardButton("Ответить", callback_data=f"reply_{user_id}")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     for admin_id in ADMINS:
         info_msg = await context.bot.send_message(
@@ -97,7 +119,10 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
     info_text = f"ID: {user_id}\nUsername: @{username}"
-    keyboard = [[InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")]]
+    keyboard = [
+        [InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")],
+        [InlineKeyboardButton("Ответить", callback_data=f"reply_{user_id}")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     for admin_id in ADMINS:
         info_msg = await context.bot.send_message(
@@ -285,6 +310,20 @@ async def broadcastall_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 continue
     await update.message.reply_text("Рассылка отправлена всем незаблокированным.")
 
+# --- Новый обработчик: reply_user_callback ---
+async def reply_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = int(query.data.split('_')[1])
+    admin_id = query.from_user.id
+    if admin_id in ADMINS:
+        admin_reply_mode[admin_id] = user_id
+        await query.edit_message_text(
+            text=f"Введите ответ для пользователя {user_id}:"
+        )
+    else:
+        await query.edit_message_text(text="Нет доступа.")
+
 if __name__ == '__main__':
     application = ApplicationBuilder().token("8419583158:AAHSlwvz0Incd6QmLJLCbdvzs9219wW-XnQ").build()
 
@@ -306,5 +345,6 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
     application.add_handler(CallbackQueryHandler(block_user_callback, pattern="^block_"))
     application.add_handler(CallbackQueryHandler(unblock_user_callback, pattern="^unblock_"))
+    application.add_handler(CallbackQueryHandler(reply_user_callback, pattern="^reply_"))
 
     application.run_polling()
