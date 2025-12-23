@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime
 import time
 
-ADMINS = {8599041133, 8209990188}
+ADMINS = {8599041133, 1870435438}
 
 blocked_users = set()
 user_last_message_time = {}
