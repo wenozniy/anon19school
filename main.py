@@ -14,10 +14,18 @@ from telegram.ext import (
 from collections import deque
 from datetime import datetime
 import time
+import logging
+
+# Логирование
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 # --- Настройки ---
 
-ADMINS = {8599041133, 1870435438}  # Твои два админа
+ADMINS = {8599041133, 1870435438}
 
 blocked_users = set()
 user_last_message_time = {}
@@ -31,16 +39,13 @@ admin_reply_mode = {}
 
 # --- Вспомогательные функции ---
 
-def check_user(user_id: int) -> bool:
-    """Антиспам + блокировка."""
-    if user_id in blocked_users:
-        return False
-    current_time = time.time()
-    last_time = user_last_message_time.get(user_id, 0)
-    if current_time - last_time < 3:
-        return False
-    user_last_message_time[user_id] = current_time
-    return True
+def is_blocked(user_id: int) -> bool:
+    return user_id in blocked_users
+
+
+def touch_antispam(user_id: int):
+    # просто обновляем время, без ограничения
+    user_last_message_time[user_id] = time.time()
 
 
 def build_admin_menu():
@@ -56,7 +61,7 @@ async def send_admin_menu_message(message, bot, text="Выберите дейс�
     await message.edit_text(text, reply_markup=build_admin_menu())
 
 
-# --- Команды пользователей ---
+# --- Команды ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -64,51 +69,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# --- Обработка текста от пользователя / админа ---
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Ваш ID: {update.message.from_user.id}")
+
+
+async def ping_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверка: может ли бот писать админам."""
+    errors = []
+    for admin_id in ADMINS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=f"Тест для админа {admin_id}",
+            )
+        except Exception as e:
+            errors.append((admin_id, str(e)))
+    if errors:
+        text = "Ошибки отправки:\n" + "\n".join(
+            f"{aid}: {err}" for aid, err in errors
+        )
+        await update.message.reply_text(text)
+    else:
+        await update.message.reply_text("Тест отправлен всем админам без ошибок.")
+
+
+# --- Обработка текста ---
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
     user = update.message.from_user
     user_id = user.id
     username = user.username or "нет"
     usernames_map[user_id] = username
 
-    # Если это админ в режиме ответа
+    logger.info(f"handle_text FROM {user_id}: {update.message.text}")
+
+    # Админ в режиме ответа
     if user_id in ADMINS and admin_reply_mode.get(user_id):
         to_user_id = admin_reply_mode.pop(user_id, None)
-        if to_user_id and to_user_id not in blocked_users:
+        if to_user_id and not is_blocked(to_user_id):
             try:
                 await context.bot.send_message(
                     chat_id=to_user_id,
                     text=f"Вам пришёл анонимный ответ на ваше сообщение:\n{update.message.text}",
                 )
                 await update.message.reply_text("Ответ отправлен пользователю анонимно.")
-            except Exception:
+            except Exception as e:
+                logger.error(f"Ошибка при ответе пользователю {to_user_id}: {e}")
                 await update.message.reply_text("Ошибка отправки ответа пользователю.")
             return
         await update.message.reply_text("Ошибка: пользователь заблокирован или не найден.")
         return
 
     # Обычный пользователь
-    if not check_user(user_id):
-        if user_id in blocked_users:
-            await update.message.reply_text("Вы заблокированы и не можете отправлять сообщения.")
-        else:
-            await update.message.reply_text("Пожалуйста, подождите 3 секунды между сообщениями.")
+    if is_blocked(user_id):
+        await update.message.reply_text("Вы заблокированы и не можете отправлять сообщения.")
         return
 
-    await update.message.reply_text(CONFIRM_TEXT)
-
-    # Сохраняем в историю
-    message_history.append(
-        {
-            "user_id": user_id,
-            "username": username,
-            "text": update.message.text,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-    )
-
-    # Отправляем админам
+    # сначала отправляем админам ВСЁ, без антиспама
     info_text = f"ID: {user_id}\nUsername: @{username}"
     keyboard = [
         [InlineKeyboardButton("Заблокировать", callback_data=f"block_{user_id}")],
@@ -128,36 +148,47 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=update.message.text,
                 reply_to_message_id=info_msg.message_id,
             )
-        except Exception:
-            # Если админ не нажал /start боту, сообщение может не дойти
+        except Exception as e:
+            logger.error(f"Ошибка отправки администратору {admin_id}: {e}")
             continue
+
+    # сохраняем в историю
+    message_history.append(
+        {
+            "user_id": user_id,
+            "username": username,
+            "text": update.message.text,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
+
+    # потом уже антиспам для ответа юзеру (мягкий)
+    last_time = user_last_message_time.get(user_id, 0)
+    now = time.time()
+    if now - last_time < 3:
+        # просто не дублируем CONFIRM_TEXT, чтобы не спамить
+        return
+
+    touch_antispam(user_id)
+    await update.message.reply_text(CONFIRM_TEXT)
 
 
 # --- Обработка медиа ---
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
     user = update.message.from_user
     user_id = user.id
     username = user.username or "нет"
     usernames_map[user_id] = username
 
-    if not check_user(user_id):
-        if user_id in blocked_users:
-            await update.message.reply_text("Вы заблокированы и не можете отправлять сообщения.")
-        else:
-            await update.message.reply_text("Пожалуйста, подождите 3 секунды между сообщениями.")
+    logger.info(f"handle_media FROM {user_id}")
+
+    if is_blocked(user_id):
+        await update.message.reply_text("Вы заблокированы и не можете отправлять сообщения.")
         return
-
-    await update.message.reply_text(CONFIRM_TEXT)
-
-    message_history.append(
-        {
-            "user_id": user_id,
-            "username": username,
-            "text": "[Медиа]",
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-    )
 
     info_text = f"ID: {user_id}\nUsername: @{username}"
     keyboard = [
@@ -166,6 +197,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    msg = update.message
+
     for admin_id in ADMINS:
         try:
             info_msg = await context.bot.send_message(
@@ -173,8 +206,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=info_text,
                 reply_markup=reply_markup,
             )
-
-            msg = update.message
 
             if msg.photo:
                 await context.bot.send_photo(
@@ -229,11 +260,31 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="[Неизвестный тип медиа]",
                     reply_to_message_id=info_msg.message_id,
                 )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Ошибка отправки медиа администратору {admin_id}: {e}")
             continue
 
+    # сохраняем в историю
+    message_history.append(
+        {
+            "user_id": user_id,
+            "username": username,
+            "text": "[Медиа]",
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
 
-# --- Админ-команды ---
+    # мягкий антиспам для ответа юзеру
+    last_time = user_last_message_time.get(user_id, 0)
+    now = time.time()
+    if now - last_time < 3:
+        return
+
+    touch_antispam(user_id)
+    await update.message.reply_text(CONFIRM_TEXT)
+
+
+# --- Админ-команды и меню ---
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -398,7 +449,8 @@ async def broadcastall_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if user_id not in blocked_users:
             try:
                 await context.bot.send_message(chat_id=user_id, text=text)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Ошибка рассылки пользователю {user_id}: {e}")
                 continue
 
     await update.message.reply_text("Рассылка отправлена всем незаблокированным.")
@@ -426,6 +478,8 @@ if __name__ == "__main__":
 
     # Команды
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("myid", myid))
+    application.add_handler(CommandHandler("ping_admins", ping_admins))
     application.add_handler(CommandHandler("admin", admin))
     application.add_handler(CommandHandler("block", block_user_command))
     application.add_handler(CommandHandler("blocked", blocked_list))
@@ -454,5 +508,5 @@ if __name__ == "__main__":
     application.add_handler(CallbackQueryHandler(unblock_user_callback, pattern="^unblock_"))
     application.add_handler(CallbackQueryHandler(reply_user_callback, pattern="^reply_"))
 
-    # Важно: получать все типы апдейтов
+    # Один единственный инстанс бота с polling
     application.run_polling(allowed_updates=Update.ALL_TYPES)
